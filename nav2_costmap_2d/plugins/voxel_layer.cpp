@@ -188,6 +188,7 @@ void VoxelLayer::updateBounds(
         (*iter_y - obs.origin_.y) * (*iter_y - obs.origin_.y) +
         (*iter_z - obs.origin_.z) * (*iter_z - obs.origin_.z);
 
+
       // if the point is far enough away... we won't consider it
       if (sq_dist >= sq_obstacle_max_range) {
         continue;
@@ -198,8 +199,31 @@ void VoxelLayer::updateBounds(
         continue;
       }
 
+      unsigned int mx=0, my=0, mz=0;
+      if (*iter_z < -0.03) {
+        // If the observed hitpoint is below the ground, there is a hole
+        // compute the location of the crossing with the ground of the raytrace from the
+        // hitpoint to the pointcloud's origin and mark it:
+        double cx, cy;
+        cx = obs.origin_.x - (obs.origin_.z * (*iter_x - obs.origin_.x)) / (*iter_z - obs.origin_.z);
+        cy = obs.origin_.y - (obs.origin_.z * (*iter_y - obs.origin_.y)) / (*iter_z - obs.origin_.z);
+
+        worldToMap3D(cx, cy, 0.0, mx, my, mz);
+
+        if (voxel_grid_.markVoxelInMap(mx, my, mz, mark_threshold_)) {
+          unsigned int index = getIndex(mx, my);
+
+          costmap_[index] = LETHAL_OBSTACLE;
+
+          touch(
+            static_cast<double>(*iter_x), static_cast<double>(*iter_y),
+            min_x, min_y, max_x, max_y);
+        }
+      }
       // now we need to compute the map coordinates for the observation
-      unsigned int mx, my, mz;
+      if (*iter_z < 0.04) {
+        continue;
+      }
       if (*iter_z < origin_z_) {
         if (!worldToMap3D(*iter_x, *iter_y, origin_z_, mx, my, mz)) {
           continue;
@@ -213,10 +237,16 @@ void VoxelLayer::updateBounds(
         unsigned int index = getIndex(mx, my);
 
         costmap_[index] = LETHAL_OBSTACLE;
+
         touch(
           static_cast<double>(*iter_x), static_cast<double>(*iter_y),
           min_x, min_y, max_x, max_y);
       }
+
+      // RCLCPP_INFO(
+      //     logger_,
+      //     "Marking pixel");
+
     }
   }
 
@@ -297,6 +327,47 @@ void VoxelLayer::clearNonLethal(
     index += size_x_ - (map_ex - map_sx) - 1;
   }
 }
+
+void VoxelLayer::raytraceHoles(
+  const Observation & below_ground_observation, double * min_x,
+  double * min_y,
+  double * max_x,
+  double * max_y)
+{
+  RCLCPP_INFO(logger_, "Raytracing holes");
+  auto marking_endpoints_ = std::make_unique<sensor_msgs::msg::PointCloud2>();
+
+  if (below_ground_observation.cloud_->height == 0 || below_ground_observation.cloud_->width == 0) {
+    return;
+  }
+
+  double sensor_x, sensor_y, sensor_z;
+  double ox = below_ground_observation.origin_.x;
+  double oy = below_ground_observation.origin_.y;
+  double oz = below_ground_observation.origin_.z;
+
+  if (!worldToMap3DFloat(ox, oy, oz, sensor_x, sensor_y, sensor_z)) {
+    RCLCPP_WARN(
+      logger_,
+      "Sensor origin: (%.2f, %.2f, %.2f), out of map bounds. The costmap can't raytrace for it.",
+      ox, oy, oz);
+    return;
+  }
+
+  bool publish_marking_points;
+
+  {
+    auto node = node_.lock();
+    if (!node) {
+      throw std::runtime_error{"Failed to lock node"};
+    }
+    publish_marking_points = (node->count_subscribers("marking_endpoints") > 0);
+  }
+  if(publish_marking_points)
+  min_x+=0,min_y+=0,max_x+=0,max_y+=0;
+
+}
+
 
 void VoxelLayer::raytraceFreespace(
   const Observation & clearing_observation, double * min_x,

@@ -145,6 +145,15 @@ private:
     double * max_x,
     double * max_y);
 
+  /**
+   * @brief Use raycasting between 2 points to mark holes as lethal
+   */
+  virtual void raytraceHoles(
+    const nav2_costmap_2d::Observation & below_ground_observation,
+    double * min_x, double * min_y,
+    double * max_x,
+    double * max_y);
+
   bool publish_voxel_;
   rclcpp_lifecycle::LifecyclePublisher<nav2_msgs::msg::VoxelGrid>::SharedPtr voxel_pub_;
   nav2_voxel_grid::VoxelGrid voxel_grid_;
